@@ -202,6 +202,7 @@ static void *coalesce(void *bp){
 }
 
 /* Helper function */
+
 static void *find_fit(size_t asize)
 {
     return first_fit(asize);
@@ -227,4 +228,21 @@ static void* first_fit(size_t asize)
 
 }
 
-static void place(void *bp, size_t asize){}
+static void place(void *bp, size_t asize){
+    size_t base_size = GET_SIZE(HDRP(bp));
+    // 남은 free block이 4 words 미만일 때
+    if((base_size - asize) < 4 * WSIZE){
+        // 남은 free block까지 포함해서 내부적 단편화(internal fragmentation)하기
+        PUT(FTRP(bp), PACK(base_size,1));
+        PUT(HDRP(bp), PACK(base_size,1));
+    }
+    // 남은 free block이 4 words 이상일 때
+    else{
+        // allocated block
+        PUT(HDRP(bp), PACK(asize,1));
+        PUT(FTRP(bp), PACK(asize,1));
+        // free block
+        PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize,0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize,0));
+    }
+}
