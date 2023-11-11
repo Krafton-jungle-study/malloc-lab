@@ -5,7 +5,7 @@
         "name": "makefile gdb 디버그",
         "type": "cppdbg",
         "request": "launch",
-        "program": "${fileDirname}/${fileBasenameNoExtension}",
+        "program": "${fileDirname}/mdriver",
         "args": [],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",

@@ -50,11 +50,11 @@ team_t team = {
 #define DSIZE 8
 #define CHUNKSIZE (1<<12)
 
-#define MAX(x,y) ((x) > (y) ? (x):(y))
+#define MAX(x, y) ((x) > (y) ? (x):(y))
 #define PACK(size, alloc) ((size) | (alloc))
 
 #define GET(p) (*(unsigned int *)(p))
-#define PUT(p,val) (*(unsigned int *)(p) = (val))
+#define PUT(p, val) (*(unsigned int *)(p) = (val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
@@ -70,19 +70,18 @@ static void *coalesce(void *);
 static void *find_fit(size_t);
 static void *first_fit(size_t);
 static void place(void *, size_t);
-
+static char *heap_listp;
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
-    void * heap_listp= -1;
     if ((heap_listp=mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
     PUT(heap_listp, 0);
-    PUT(heap_listp+(1*WSIZE), PACK(DSIZE,1));
-    PUT(heap_listp+(2*WSIZE), PACK(DSIZE,1));
-    PUT(heap_listp+(3*WSIZE), PACK(0,1));
+    PUT(heap_listp+(1*WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp+(2*WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp+(3*WSIZE), PACK(0, 1));
     heap_listp+=(2*WSIZE);
 
     if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
@@ -98,6 +97,7 @@ int mm_init(void)
 
 void *mm_malloc(size_t size)
 {
+    printf("malloc, %d\n",size);
     size_t asize;
     size_t extendsize;
     char *bp;
@@ -111,14 +111,20 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
 
     if ((bp = find_fit(asize)) != NULL){
+        printf("들어갈 자리 찾음\n");
         place(bp, asize);
+        printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
         return bp;
     }
 
     extendsize = MAX(asize, CHUNKSIZE);
-    if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
+    if ((bp = extend_heap(extendsize/WSIZE)) == NULL){
+        printf("extend error\n");
         return NULL;
+    }
+    printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize);
     place(bp, asize);
+    printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
     return bp;
 }
 
@@ -128,6 +134,8 @@ void *mm_malloc(size_t size)
 void mm_free(void *bp)
 {
     size_t size = GET_SIZE(HDRP(bp));
+
+    printf("free %p\n",HDRP(bp));
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
@@ -165,7 +173,7 @@ static void *extend_heap(size_t words){
         return NULL;
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
 
     return coalesce(bp);
 }
@@ -182,8 +190,8 @@ static void *coalesce(void *bp){
     // CASE 2 : 이전 블록 - allocated / 다음 블록 - free
     else if(prev_alloc && !next_alloc){
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size,0)); 
-        PUT(FTPR(bp), PACK(size,0));
+        PUT(HDRP(bp), PACK(size, 0)); 
+        PUT(FTRP(bp), PACK(size, 0));
     }
     // CASE 3 : 이전 블록 - free / 다음 블록 - allocated
     else if (!prev_alloc && next_alloc){
@@ -193,9 +201,9 @@ static void *coalesce(void *bp){
     }
     // CASE 4 : 이전 블록 - free / 다음 블록 - free
     else{
-        size += GET_SZIE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
-        PUT(HDRP(PREV_BLKP(bp)),PACK(size,0));
-        PUT(FTRP(NEXT_BLKP(bp)),PACK(size,0));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp=PREV_BLKP(bp);
     }
     return bp;
@@ -213,9 +221,9 @@ static void* first_fit(size_t asize)
     alloc_t allocated;
     size_t size;
 
-    void *bp = mem_heap_lo() + 4;
+    void *bp = heap_listp;
 
-    while(bp <= mem_heap_hi())
+    while(bp < mem_heap_hi())
     {
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
@@ -230,19 +238,31 @@ static void* first_fit(size_t asize)
 
 static void place(void *bp, size_t asize){
     size_t base_size = GET_SIZE(HDRP(bp));
+    printf("할당 중 %p size:%d\n", bp, base_size);
     // 남은 free block이 4 words 미만일 때
     if((base_size - asize) < 4 * WSIZE){
+        
+        printf("---------------------------------\n");
+        printf("내부단편화로 할당\n");
+        printf("header:%p, size:%d, footer:%p\n", HDRP(bp), GET_SIZE(HDRP(bp)), FTRP(bp));
+        printf("---------------------------------\n");
         // 남은 free block까지 포함해서 내부적 단편화(internal fragmentation)하기
-        PUT(FTRP(bp), PACK(base_size,1));
-        PUT(HDRP(bp), PACK(base_size,1));
+        PUT(FTRP(bp), PACK(base_size, 1));
+        PUT(HDRP(bp), PACK(base_size, 1));
     }
     // 남은 free block이 4 words 이상일 때
     else{
+        printf("새 블록 쪼개면서 할당\n");
         // allocated block
-        PUT(HDRP(bp), PACK(asize,1));
-        PUT(FTRP(bp), PACK(asize,1));
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        printf("---------------------------------\n");
+        printf("header:%p, size:%d, footer:%p\n", HDRP(bp), GET_SIZE(HDRP(bp)), FTRP(bp));
         // free block
-        PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize,0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize,0));
+        printf("쪼개고 남은 블럭\n");
+        printf("bp: %p, base size: %d, allocated size: %d\n", HDRP(NEXT_BLKP(bp)), base_size, asize);
+        printf("---------------------------------\n");
+        PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
     }
 }
