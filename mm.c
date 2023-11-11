@@ -71,6 +71,7 @@ static void *find_fit(size_t);
 static void *first_fit(size_t);
 static void place(void *, size_t);
 static char *heap_listp;
+int mm_check(void);
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -97,7 +98,8 @@ int mm_init(void)
 
 void *mm_malloc(size_t size)
 {
-    printf("malloc, %d\n",size);
+    //mm_check();
+    // printf("malloc, %d\n",size);
     size_t asize;
     size_t extendsize;
     char *bp;
@@ -111,20 +113,21 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
 
     if ((bp = find_fit(asize)) != NULL){
-        printf("들어갈 자리 찾음\n");
+        // printf("들어갈 자리 찾음\n");
         place(bp, asize);
-        printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
+        // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
         return bp;
     }
 
     extendsize = MAX(asize, CHUNKSIZE);
+    // printf("a:%d, c:%d, e:%d\n",asize, CHUNKSIZE, extendsize);
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL){
-        printf("extend error\n");
+        // printf("extend error\n");
         return NULL;
     }
-    printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize);
+    // printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize);
     place(bp, asize);
-    printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
+    // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
     return bp;
 }
 
@@ -135,7 +138,7 @@ void mm_free(void *bp)
 {
     size_t size = GET_SIZE(HDRP(bp));
 
-    printf("free %p\n",HDRP(bp));
+    // printf("free %p\n",HDRP(bp));
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
@@ -196,8 +199,9 @@ static void *coalesce(void *bp){
     // CASE 3 : 이전 블록 - free / 다음 블록 - allocated
     else if (!prev_alloc && next_alloc){
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
     }
     // CASE 4 : 이전 블록 - free / 다음 블록 - free
     else{
@@ -221,9 +225,9 @@ static void* first_fit(size_t asize)
     alloc_t allocated;
     size_t size;
 
-    void *bp = heap_listp;
+    char *bp = heap_listp;
 
-    while(bp < mem_heap_hi())
+    while(bp < (char *)mem_heap_hi()+1)
     {
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
@@ -238,31 +242,53 @@ static void* first_fit(size_t asize)
 
 static void place(void *bp, size_t asize){
     size_t base_size = GET_SIZE(HDRP(bp));
-    printf("할당 중 %p size:%d\n", bp, base_size);
+    // printf("할당 중 %p \n할당size: %d 원래size:%d\n", bp, asize, base_size);
     // 남은 free block이 4 words 미만일 때
     if((base_size - asize) < 4 * WSIZE){
-        
-        printf("---------------------------------\n");
-        printf("내부단편화로 할당\n");
-        printf("header:%p, size:%d, footer:%p\n", HDRP(bp), GET_SIZE(HDRP(bp)), FTRP(bp));
-        printf("---------------------------------\n");
+        // printf("내부단편화로 할당\n");
         // 남은 free block까지 포함해서 내부적 단편화(internal fragmentation)하기
         PUT(FTRP(bp), PACK(base_size, 1));
         PUT(HDRP(bp), PACK(base_size, 1));
     }
     // 남은 free block이 4 words 이상일 때
     else{
-        printf("새 블록 쪼개면서 할당\n");
+        // printf("새 블록 쪼개면서 할당\n");
         // allocated block
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
-        printf("---------------------------------\n");
-        printf("header:%p, size:%d, footer:%p\n", HDRP(bp), GET_SIZE(HDRP(bp)), FTRP(bp));
+        // printf("앞 hdr:%p size%d ftr%p\n",
+        //     HDRP(bp), GET_SIZE(HDRP(bp)), FTRP(bp)
+        // );
         // free block
-        printf("쪼개고 남은 블럭\n");
-        printf("bp: %p, base size: %d, allocated size: %d\n", HDRP(NEXT_BLKP(bp)), base_size, asize);
-        printf("---------------------------------\n");
         PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
+        // printf("뒤 hdr:%p size%d ftr%p\n",
+        //     HDRP(NEXT_BLKP(bp)), GET_SIZE(HDRP(NEXT_BLKP(bp))), 
+        //     FTRP(NEXT_BLKP(bp))
+        // );
     }
+}
+
+int mm_check(void){
+
+    alloc_t allocated;
+    size_t size;
+
+    char *bp = heap_listp;
+    // printf("\nmm_check\n");
+    int i=0;
+    while(bp < (char *)mem_heap_hi()+1)
+    {
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        // printf("[%d] bp:%p, size:%d alloc:%ld, \n  hdrp:%p, ftrp:%p,  \n nxtp:%p\n",
+        //     i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
+        // );
+        // printf("  bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
+        //     bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
+        // );
+        bp = NEXT_BLKP(bp);
+        i++;
+    }
+    return 0;
 }
