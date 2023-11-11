@@ -63,11 +63,25 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
+static void *extend_heap(size_t);
+static void *coalesce(void *);
+
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
+    void * heap_listp= -1;
+    if ((heap_listp=mem_sbrk(4*WSIZE)) == (void *)-1)
+        return -1;
+    PUT(heap_listp, 0);
+    PUT(heap_listp+(1*WSIZE), PACK(DSIZE,1));
+    PUT(heap_listp+(2*WSIZE), PACK(DSIZE,1));
+    PUT(heap_listp+(3*WSIZE), PACK(0,1));
+    heap_listp+=(2*WSIZE);
+
+    if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
+        return -1;
     return 0;
 }
 
@@ -90,8 +104,14 @@ void *mm_malloc(size_t size)
 /*
  * mm_free - Freeing a block does nothing.
  */
-void mm_free(void *ptr)
+void mm_free(void *bp)
 {
+    size_t size = GET_SIZE(HDRP(bp));
+
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    coalesce(bp);
+
 }
 
 /*
@@ -114,7 +134,50 @@ void *mm_realloc(void *ptr, size_t size)
     return newptr;
 }
 
+static void *extend_heap(size_t words){
+    char *bp;
+    size_t size;
 
+    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+    if ((long)(bp = mem_sbrk(size)) == -1)
+        return NULL;
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+
+    return coalesce(bp);
+}
+
+static void *coalesce(void *bp){
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+
+    // CASE 1 : 이전 블록 - allocated / 다음 블록 - allocated
+    if(prev_alloc && next_alloc){
+        return bp;
+    }
+    // CASE 2 : 이전 블록 - allocated / 다음 블록 - free
+    else if(prev_alloc && !next_alloc){
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size,0)); 
+        PUT(FTPR(bp), PACK(size,0));
+    }
+    // CASE 3 : 이전 블록 - free / 다음 블록 - allocated
+    else if (!prev_alloc && next_alloc){
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    }
+    // CASE 4 : 이전 블록 - free / 다음 블록 - free
+    else{
+        size += GET_SZIE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)),PACK(size,0));
+        PUT(FTRP(NEXT_BLKP(bp)),PACK(size,0));
+        bp=PREV_BLKP(bp);
+    }
+    return bp;
+}
 
 
 
