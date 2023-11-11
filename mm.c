@@ -22,6 +22,8 @@
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
  ********************************************************/
+typedef unsigned long alloc_t;
+
 team_t team = {
     /* Team name */
     "team-fundamental",
@@ -66,6 +68,7 @@ team_t team = {
 static void *extend_heap(size_t);
 static void *coalesce(void *);
 static void *find_fit(size_t);
+static void *first_fit(size_t);
 static void place(void *, size_t);
 
 /* 
@@ -199,7 +202,32 @@ static void *coalesce(void *bp){
 }
 
 /* Helper function */
-static void *find_fit(size_t asize){}
+
+static void *find_fit(size_t asize)
+{
+    return first_fit(asize);
+}
+
+static void* first_fit(size_t asize)
+{
+    alloc_t allocated;
+    size_t size;
+
+    void *bp = mem_heap_lo() + 4;
+
+    while(bp <= mem_heap_hi())
+    {
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        
+        if (!allocated && size >= asize)
+            return bp;
+        bp = NEXT_BLKP(bp);
+    }
+    return NULL;
+
+}
+
 static void place(void *bp, size_t asize){
     size_t base_size = GET_SIZE(HDRP(bp));
     // 남은 free block이 4 words 미만일 때
