@@ -29,10 +29,10 @@ team_t team = {
     "So KyungHyun",
     /* First member's email address */
     "valentine92@gmail.com",
-    /* Second member's full name (leave blank if none) */
-    "",
-    /* Second member's email address (leave blank if none) */
-    ""
+    /* Second and Third member's full name (leave blank if none) */
+    "Kim Jintae, Jo youjin",
+    /* Second and Third member's email address (leave blank if none) */
+    "realbig4199@gmail.com, youjijoy@gmail.com"
 };
 
 /* single word (4) or double word (8) alignment */
@@ -65,6 +65,8 @@ team_t team = {
 
 static void *extend_heap(size_t);
 static void *coalesce(void *);
+static void *find_fit(size_t);
+static void place(void *, size_t);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -89,16 +91,32 @@ int mm_init(void)
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
  */
+
+
 void *mm_malloc(size_t size)
 {
-    int newsize = ALIGN(size + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    if (p == (void *)-1)
-	return NULL;
-    else {
-        *(size_t *)p = size;
-        return (void *)((char *)p + SIZE_T_SIZE);
+    size_t asize;
+    size_t extendsize;
+    char *bp;
+
+    if (size == 0)
+        return NULL;
+
+    if (size <= DSIZE)
+        asize = 2*DSIZE;
+    else
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
+
+    if ((bp = find_fit(asize)) != NULL){
+        place(bp, asize);
+        return bp;
     }
+
+    extendsize = MAX(asize, CHUNKSIZE);
+    if ((bp = extend_heap(extendsize/WSIZE)) == NULL)
+        return NULL;
+    place(bp, asize);
+    return bp;
 }
 
 /*
@@ -133,6 +151,7 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     return newptr;
 }
+
 
 static void *extend_heap(size_t words){
     char *bp;
@@ -179,14 +198,6 @@ static void *coalesce(void *bp){
     return bp;
 }
 
-
-
-
-
-
-
-
-
-
-
-
+/* Helper function */
+static void *find_fit(size_t asize){}
+static void place(void *bp, size_t asize){}
