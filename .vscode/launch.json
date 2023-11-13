@@ -6,7 +6,7 @@
         "type": "cppdbg",
         "request": "launch",
         "program": "${fileDirname}/mdriver",
-        "args": [],
+        "args": ["-v","-f","traces/realloc-bal.rep"],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
         "environment": [],
