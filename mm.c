@@ -31,10 +31,10 @@ team_t team = {
     "So KyungHyun",
     /* First member's email address */
     "valentine92@gmail.com",
-    /* Second and Third member's full name (leave blank if none) */
-    "Kim Jintae, Jo youjin",
-    /* Second and Third member's email address (leave blank if none) */
-    "realbig4199@gmail.com, youjijoy@gmail.com"
+    /* Second member's full name and email address (leave blank if none) */
+    "Kim Jintae: realbig4199@gmail.com",
+    /* Third member's full name and email address (leave blank if none) */
+    "Jo youjin: youjinjoy@gmail.com"
 };
 
 /* single word (4) or double word (8) alignment */
@@ -62,6 +62,9 @@ team_t team = {
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
+#define PRED(bp) ((char *)(bp))
+#define SUCC(bp) ((char *)(bp) + WSIZE)
+
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
@@ -71,9 +74,13 @@ static void *find_fit(size_t);
 static void *first_fit(size_t);
 static void *next_fit(size_t);
 static void place(void *, size_t);
+static void add_explicit_free_block(char *);
+static void splice_explicit_free_block(char *);
+static int mm_check(void);
+
 static char *heap_listp;
 static char *next_fit_ptr;
-int mm_check(void);
+static char *free_list_head;
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -151,6 +158,7 @@ void mm_free(void *bp)
     mm_check();
 }
 
+
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
@@ -186,35 +194,81 @@ static void *extend_heap(size_t words){
     return coalesce(bp);
 }
 
+void add_explicit_free_block(char * bp){
+
+    char *first_node = GET(free_list_head); // 연결 리스트(explicit free list)의 첫 번째 노드
+
+    // head 와 bp의 관계
+    PUT(free_list_head, bp);// head의 successor 에 bp 넣기
+    PUT(PRED(bp), free_list_head); // bp의 predecessor에 head 주소 넣기
+    // bp 와 first_node의 관계
+    PUT(SUCC(bp), first_node); // bp의 successor에 first_node 넣기
+    PUT(PRED(first_node), bp); // first_node의 predecessor에 bp 포인터 넣기
+
+}
+
+void splice_explicit_free_block(char * bp){
+
+    char *prev_node = PRED(bp);
+    char *next_node = SUCC(bp);
+
+    // 다음 블록(free)에 대한 연결 해제
+    PUT(SUCC(prev_node), next_node);
+    PUT(PRED(next_node), prev_node);
+
+}
+
 static void *coalesce(void *bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
+    
 
     // CASE 1 : 이전 블록 - allocated / 다음 블록 - allocated
     if(prev_alloc && next_alloc){
+
+        add_explicit_free_block(bp);
+
         return bp;
     }
     // CASE 2 : 이전 블록 - allocated / 다음 블록 - free
     else if(prev_alloc && !next_alloc){
+        
+        splice_explicit_free_block(NEXT_BLKP(bp));
+
+        // 현재 블록(free)와 다음 블록(free)를 연결
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0)); 
         PUT(FTRP(bp), PACK(size, 0));
+        
+        add_explicit_free_block(bp);
+
     }
     // CASE 3 : 이전 블록 - free / 다음 블록 - allocated
     else if (!prev_alloc && next_alloc){
+
+        splice_explicit_free_block(PREV_BLKP(bp));
+
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
+
+        add_explicit_free_block(bp);
     }
     // CASE 4 : 이전 블록 - free / 다음 블록 - free
     else{
+        splice_explicit_free_block(NEXT_BLKP(bp));
+        splice_explicit_free_block(PREV_BLKP(bp));
+        
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp=PREV_BLKP(bp);
+
+        add_explicit_free_block(bp);
     }
+
     return bp;
 }
 
