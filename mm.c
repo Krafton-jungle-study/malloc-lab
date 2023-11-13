@@ -100,8 +100,8 @@ int mm_init(void)
 
 void *mm_malloc(size_t size)
 {
-    //mm_check();
-    // printf("malloc, %d\n",size);
+    
+    // printf("malloc, %d\n",size); //debug
     size_t asize;
     size_t extendsize;
     char *bp;
@@ -115,8 +115,9 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
 
     if ((bp = find_fit(asize)) != NULL){
-        // printf("들어갈 자리 찾음\n");
+        // printf("들어갈 자리 찾음\n");  //debug
         place(bp, asize);
+        mm_check();
         // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
         return bp;
     }
@@ -127,8 +128,9 @@ void *mm_malloc(size_t size)
         // printf("extend error\n");
         return NULL;
     }
-    // printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize);
+    // printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize); //debug
     place(bp, asize);
+    mm_check();
     // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
     return bp;
 }
@@ -144,8 +146,9 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-    coalesce(bp);
-
+    next_fit_ptr = coalesce(bp);
+    // printf("해제\n"); //debug
+    mm_check();
 }
 
 /*
@@ -257,11 +260,11 @@ static void* next_fit(size_t asize)
         size = GET_SIZE(HDRP(bp));
         
         if (!allocated && size >= asize){
-            next_fit_ptr = bp;
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
+    char *last_bp = PREV_BLKP(bp);
     bp = heap_listp;
     while(bp < next_fit_ptr)
     {
@@ -269,12 +272,11 @@ static void* next_fit(size_t asize)
         size = GET_SIZE(HDRP(bp));
         
         if (!allocated && size >= asize){
-            next_fit_ptr = bp;
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
-    next_fit_ptr = bp;
+    next_fit_ptr = last_bp;
     return NULL;
 }
 
@@ -305,9 +307,12 @@ static void place(void *bp, size_t asize){
         //     FTRP(NEXT_BLKP(bp))
         // );
     }
+    next_fit_ptr = NEXT_BLKP(bp);
+    return;
 }
 
 int mm_check(void){
+    return 0;
 
     alloc_t allocated;
     size_t size;
@@ -319,12 +324,12 @@ int mm_check(void){
     {
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
-        // printf("[%d] bp:%p, size:%d alloc:%ld, \n  hdrp:%p, ftrp:%p,  \n nxtp:%p\n",
-        //     i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
-        // );
-        // printf("  bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
-        //     bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
-        // );
+        printf("[%d] bp:%p, size:%d alloc:%ld, \n  hdrp:%p, ftrp:%p,  \n nxtp:%p\n",
+            i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
+        );
+        printf("  bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
+            bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
+        );
         bp = NEXT_BLKP(bp);
         i++;
     }
