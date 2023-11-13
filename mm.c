@@ -69,8 +69,10 @@ static void *extend_heap(size_t);
 static void *coalesce(void *);
 static void *find_fit(size_t);
 static void *first_fit(size_t);
+static void *next_fit(size_t);
 static void place(void *, size_t);
 static char *heap_listp;
+static char *next_fit_ptr;
 int mm_check(void);
 /* 
  * mm_init - initialize the malloc package.
@@ -84,7 +86,7 @@ int mm_init(void)
     PUT(heap_listp+(2*WSIZE), PACK(DSIZE, 1));
     PUT(heap_listp+(3*WSIZE), PACK(0, 1));
     heap_listp+=(2*WSIZE);
-
+    next_fit_ptr = heap_listp;
     if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
         return -1;
     return 0;
@@ -217,7 +219,9 @@ static void *coalesce(void *bp){
 
 static void *find_fit(size_t asize)
 {
-    return first_fit(asize);
+    // return first_fit(asize);
+    return next_fit(asize);
+
 }
 
 static void* first_fit(size_t asize)
@@ -238,6 +242,40 @@ static void* first_fit(size_t asize)
     }
     return NULL;
 
+}
+
+static void* next_fit(size_t asize)
+{   
+    alloc_t allocated;
+    size_t size;
+
+    char *bp = next_fit_ptr;
+
+    while(bp < (char *)mem_heap_hi()+1)
+    {
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        
+        if (!allocated && size >= asize){
+            next_fit_ptr = bp;
+            return bp;
+        }
+        bp = NEXT_BLKP(bp);
+    }
+    bp = heap_listp;
+    while(bp < next_fit_ptr)
+    {
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        
+        if (!allocated && size >= asize){
+            next_fit_ptr = bp;
+            return bp;
+        }
+        bp = NEXT_BLKP(bp);
+    }
+    next_fit_ptr = bp;
+    return NULL;
 }
 
 static void place(void *bp, size_t asize){
