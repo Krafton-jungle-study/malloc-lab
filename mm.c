@@ -260,7 +260,6 @@ static void* next_fit(size_t asize)
         size = GET_SIZE(HDRP(bp));
         
         if (!allocated && size >= asize){
-            next_fit_ptr = bp;
             return bp;
         }
         bp = NEXT_BLKP(bp);
@@ -273,7 +272,6 @@ static void* next_fit(size_t asize)
         size = GET_SIZE(HDRP(bp));
         
         if (!allocated && size >= asize){
-            next_fit_ptr = bp;
             return bp;
         }
         bp = NEXT_BLKP(bp);
@@ -309,6 +307,8 @@ static void place(void *bp, size_t asize){
         //     FTRP(NEXT_BLKP(bp))
         // );
     }
+    next_fit_ptr = NEXT_BLKP(bp);
+    return;
 }
 
 int mm_check(void){
