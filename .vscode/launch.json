@@ -6,7 +6,7 @@
         "type": "cppdbg",
         "request": "launch",
         "program": "${fileDirname}/mdriver",
-        "args": ["-V","-f","short1-bal.rep"],
+        "args": ["-V","-f","traces/cccp-bal.rep"],
         "stopAtEntry": false,
         "cwd": "${workspaceFolder}",
         "environment": [],

@@ -363,7 +363,7 @@ static void* explicit_fit(size_t asize){
     size_t size;
 
     char *bp = free_list_head;
-
+    bp = GET(SUCC(bp));
     while(bp!=NULL){
 
         size = GET_SIZE(HDRP(bp));
