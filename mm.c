@@ -112,17 +112,17 @@ int mm_init(void)
 
     //eplilogue
     PUT(heap_listp+(11*WSIZE), PACK(0, 1)); 
-    heap_listp+=(10*WSIZE);
-    
-    mm_check();
-    if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
-        return -1;
 
     char *free_head_bp = heap_listp+(2*WSIZE);
     char *free_tail_bp = heap_listp+(6*WSIZE);
     
-    *free_list_head = free_head_bp; // free_list_head가 free_head 가리키게
+    heap_listp+=(10*WSIZE);
+    free_list_head = free_head_bp; // free_list_head가 free_head 가리키게
     
+    printf("heap_listp %p\n", heap_listp);
+    printf("free_list_head %p\n", free_list_head);
+    printf("free_head_bp %p\n", free_head_bp);
+
     //free_head 앞 뒤 세팅
     PUT(PRED(free_head_bp), NULL); // head의 앞. null
     PUT(SUCC(free_head_bp), free_tail_bp); //head뒤
@@ -130,7 +130,15 @@ int mm_init(void)
     //free_tail 앞 뒤 세팅
     PUT(PRED(free_tail_bp), free_head_bp); // tail 의 앞
     PUT(SUCC(free_tail_bp), NULL); // tail의 뒤
+    
+    #ifdef DEBUG
+        printf("\n초기화\n");
+        mm_check();
+    #endif
 
+    if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
+        return -1;
+    
     return 0;
 }
 
@@ -235,17 +243,22 @@ static void *extend_heap(size_t words){
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
+    printf("extend heap bp: %p\n",bp);
     PUT(HDRP(bp), PACK(size, 0)); //freeblock header
     PUT(FTRP(bp), PACK(size, 0)); //freeblock footer
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); //에필로그
     
+    #ifdef DEBUG
+        mm_check();
+    #endif
     //add 따로 안해줘도 됨(coalesce에서 함)
     return coalesce(bp);
 }
 
 void add_explicit_free_block(char * bp){ //LIFO
 
-    char *head_node = GET(free_list_head); // 연결 리스트(explicit free list)의 헤드
+    printf("\n add_explicit_free block %p\n", bp);
+    char *head_node = free_list_head; // 연결 리스트(explicit free list)의 헤드
     char *first_node = GET(SUCC(head_node)); // 연결 리스트의 first node;
     // first_node 와 bp의 관계
     PUT(SUCC(head_node), bp);// head의 successor 에 bp 넣기
@@ -266,6 +279,11 @@ void splice_explicit_free_block(char * bp){
     PUT(SUCC(prev_node), next_node);
     PUT(PRED(next_node), prev_node);
 
+    #ifdef DEBUG
+        printf("\n splice explicit-free_block\n");
+        mm_check();
+    #endif
+
 }
 
 static void *coalesce(void *bp){
@@ -278,7 +296,6 @@ static void *coalesce(void *bp){
 
         add_explicit_free_block(bp);
 
-        return bp;
     }
     // CASE 2 : 이전 블록 - allocated / 다음 블록 - free
     else if(prev_alloc && !next_alloc){
@@ -289,7 +306,7 @@ static void *coalesce(void *bp){
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0)); 
         PUT(FTRP(bp), PACK(size, 0));
-        
+
         add_explicit_free_block(bp);
 
     }
@@ -318,6 +335,9 @@ static void *coalesce(void *bp){
         add_explicit_free_block(bp);
     }
 
+    printf("\ncoalescing 이후\n");
+    mm_check();
+
     return bp;
 }
 
@@ -336,13 +356,15 @@ static void* explicit_fit(size_t asize){
 
     char *bp = free_list_head;
 
-    while(SUCC(bp)!=NULL){
+    while(bp!=NULL){
 
         size = GET_SIZE(HDRP(bp));
         
-        if (size >= asize)
+        if (size >= asize){
+            printf("\n find fit %p\n", bp);
             return bp;
-        bp = SUCC(bp);
+        }
+        bp = GET(SUCC(bp));
     }
     return NULL;
 
@@ -415,9 +437,14 @@ static void place(void *bp, size_t asize){
         PUT(FTRP(bp), PACK(asize, 1));
         PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0)); //암시적으로 넥스트로 감
         PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
+        
+        printf("\n분할\n");
+        mm_check();
         add_explicit_free_block(NEXT_BLKP(bp));
+        mm_check();
     }
     splice_explicit_free_block(bp);
+    mm_check();
     return;
 }
 
@@ -428,19 +455,47 @@ int mm_check(void){
 
     char *bp = mem_heap_lo()+2*WSIZE;
     printf("\nmm_check\n");
+    printf("mem_start_brk %p\n", mem_heap_lo());
+    printf("mem_brk %p\n", mem_heap_hi());
+    printf("mem_heap_size %d\n", mem_heapsize());
+
     int i=0;
+
+    //전체 블록 추적
+    printf("\n 전체 블록 출력 \n");
+    printf("----프리리스트 헤드, 테일----\n");
     while(bp < (char *)mem_heap_hi()+1)
     {
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
-        printf("[%d] bp:%p, size:%d alloc:%ld, \n  hdrp:%p, ftrp:%p,  \n nxtp:%p\n",
+        printf("[%d] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p,  \n    NEXTp:%p\n",
             i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
         );
-        printf("  bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
+        printf("    bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
             bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
         );
         bp = NEXT_BLKP(bp);
         i++;
+        if(i==2){
+            printf("---프롤로그 부터---\n");
+        }
     }
+    
+    i=0;
+    bp = free_list_head;
+    printf("\n free list 출력 \n");
+    while(bp!=NULL){
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        printf("[%d] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    PREDp:%p SUCCp:%p\n",
+            i,bp, size, allocated, HDRP(bp), FTRP(bp), GET(PRED(bp)), GET(SUCC(bp))
+        );
+        printf("    bp-hdrp:%d,ftrp-hdrp:%d\n\n",
+            bp-HDRP(bp), FTRP(bp)-HDRP(bp)
+        );
+        bp = GET(SUCC(bp));
+        i++;
+    }
+    //freelist 추적
     return 0;
 }
