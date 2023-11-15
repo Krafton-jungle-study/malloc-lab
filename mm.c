@@ -77,12 +77,15 @@ static void *extend_heap(size_t);
 static void *coalesce(void *);
 static void *find_fit(size_t);
 static void *first_fit(size_t);
-static void *next_fit(size_t);
 static void place(void *, size_t);
-static void *explicit_fit(size_t);
-static void add_explicit_free_block(char *);
-static void splice_explicit_free_block(char *);
 static int mm_check(void);
+
+void InorderTreeWalk(char *);
+static char *SearchFreeBlock(char *, size_t);
+static char *FindMinimum(char *);
+static void TransplantFreeBlock(char *, char *);
+static void DeleteFreeBlock(char *);
+static void InsertFreeBlock(char *);
 
 static char *heap_listp;
 static char *next_fit_ptr;
@@ -125,14 +128,14 @@ int mm_init(void)
 
     #ifdef DEBUG
         printf("heap_listp %p\n", heap_listp);
-        printf("free_list_head %p\n", free_list_head);
-        printf("free_head_bp %p\n", free_head_bp);
+        printf("free_root_bp %p\n", free_root_bp);
+        printf("free_nil_bp %p\n", free_nil_bp);
     #endif
 
     // free_nil_bp left, right, parent 세팅
-    PUT(LEFT(free_nil_bp), NULL); // nil의 왼쪽
-    PUT(RIGHT(free_nil_bp), NULL); // nil의 오른쪽
-    PUT(PARENT(free_nil_bp), NULL); // nil의 부모
+    PUT(LEFT_P(free_nil_bp), NULL); // nil의 왼쪽
+    PUT(RIGHT_P(free_nil_bp), NULL); // nil의 오른쪽
+    PUT(PARENT_P(free_nil_bp), NULL); // nil의 부모
     
     
     #ifdef DEBUG
@@ -204,6 +207,7 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
+    
     coalesce(bp);
     //add 따로 안해줘도 됨(coalsece에서 함)
 
@@ -260,41 +264,6 @@ static void *extend_heap(size_t words){
     return coalesce(bp);
 }
 
-void add_explicit_free_block(char * bp){ //LIFO
-
-    char *head_node = free_list_head; // 연결 리스트(explicit free list)의 헤드
-    char *first_node = GET(SUCC(head_node)); // 연결 리스트의 first node;
-    // first_node 와 bp의 관계
-    PUT(SUCC(head_node), bp);// head의 successor 에 bp 넣기
-    PUT(PRED(bp), head_node); // bp의 predecessor에 head 넣기
-
-    // bp 와 다음 노드의 관계
-    PUT(SUCC(bp), first_node); // bp의 successor에 first_node 넣기
-    PUT(PRED(first_node), bp); // first_node의 predecessor에 bp 넣기
-
-     #ifdef DEBUG
-        printf("\n add_explicit_free block %p\n", bp);
-        mm_check();
-    #endif
-
-}
-
-void splice_explicit_free_block(char * bp){
-
-    char *prev_node = GET(PRED(bp));
-    char *next_node = GET(SUCC(bp));
-
-    // 다음 블록(free)에 대한 연결 해제
-    PUT(SUCC(prev_node), next_node);
-    PUT(PRED(next_node), prev_node);
-
-    #ifdef DEBUG
-        printf("\n splice explicit-free_block %p\n", bp);
-        mm_check();
-    #endif
-
-}
-
 static void *coalesce(void *bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
@@ -302,47 +271,43 @@ static void *coalesce(void *bp){
     
     // CASE 1 : 이전 블록 - allocated / 다음 블록 - allocated
     if(prev_alloc && next_alloc){
-
-        add_explicit_free_block(bp);
-
+        //add. 아래에서 처리
     }
     // CASE 2 : 이전 블록 - allocated / 다음 블록 - free
     else if(prev_alloc && !next_alloc){
         
-        splice_explicit_free_block(NEXT_BLKP(bp));
+        DeleteFreeBlock(NEXT_BLKP(bp));
 
         // 현재 블록(free)와 다음 블록(free)를 연결
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0)); 
         PUT(FTRP(bp), PACK(size, 0));
 
-        add_explicit_free_block(bp);
-
     }
     // CASE 3 : 이전 블록 - free / 다음 블록 - allocated
     else if (!prev_alloc && next_alloc){
 
-        splice_explicit_free_block(PREV_BLKP(bp));
+        DeleteFreeBlock(PREV_BLKP(bp));
 
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
 
-        add_explicit_free_block(bp);
     }
     // CASE 4 : 이전 블록 - free / 다음 블록 - free
     else{
-        splice_explicit_free_block(NEXT_BLKP(bp));
-        splice_explicit_free_block(PREV_BLKP(bp));
+
+        DeleteFreeBlock(NEXT_BLKP(bp));
+        DeleteFreeBlock(PREV_BLKP(bp));
         
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp=PREV_BLKP(bp);
 
-        add_explicit_free_block(bp);
     }
+    InsertFreeBlock(bp);
 
     #ifdef DEBUG
         printf("\ncoalescing 이후\n");
@@ -356,32 +321,7 @@ static void *coalesce(void *bp){
 
 static void *find_fit(size_t asize)
 {
-    return explicit_fit(asize);
-    // return first_fit(asize);
-    //return next_fit(asize);
-}
-
-static void* explicit_fit(size_t asize){
-    
-    size_t size;
-
-    char *bp = free_list_head;
-    bp = GET(SUCC(bp));
-    while(bp!=NULL){
-
-        size = GET_SIZE(HDRP(bp));
-        
-        if (size >= asize){
-
-            #ifdef DEBUG
-            printf("\n find fit %p\n", bp);
-            #endif
-            return bp;
-        }
-        bp = GET(SUCC(bp));
-    }
-    return NULL;
-
+    return (void *)SearchFreeBlock(free_root_bp, asize);
 }
 
 static void* first_fit(size_t asize)
@@ -404,39 +344,6 @@ static void* first_fit(size_t asize)
 
 }
 
-static void* next_fit(size_t asize)
-{   
-    alloc_t allocated;
-    size_t size;
-
-    char *bp = next_fit_ptr;
-
-    while(bp < (char *)mem_heap_hi()+1)
-    {
-        allocated = GET_ALLOC(HDRP(bp));
-        size = GET_SIZE(HDRP(bp));
-        
-        if (!allocated && size >= asize){
-            return bp;
-        }
-        bp = NEXT_BLKP(bp);
-    }
-    char *last_bp = PREV_BLKP(bp);
-    bp = heap_listp;
-    while(bp < next_fit_ptr)
-    {
-        allocated = GET_ALLOC(HDRP(bp));
-        size = GET_SIZE(HDRP(bp));
-        
-        if (!allocated && size >= asize){
-            return bp;
-        }
-        bp = NEXT_BLKP(bp);
-    }
-    next_fit_ptr = last_bp;
-    return NULL;
-}
-
 static void place(void *bp, size_t asize){
     size_t base_size = GET_SIZE(HDRP(bp));
     // 남은 free block이 4 words 미만일 때
@@ -457,9 +364,9 @@ static void place(void *bp, size_t asize){
             mm_check();
         #endif
 
-        add_explicit_free_block(NEXT_BLKP(bp));
+        InsertFreeBlock(NEXT_BLKP(bp));
     }
-    splice_explicit_free_block(bp);
+    DeleteFreeBlock(bp);
     return;
 }
 
@@ -518,8 +425,8 @@ void InorderTreeWalk(char *bp)
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
 
-        printf("[*] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    PREDp:%p SUCCp:%p\n",
-            bp, size, allocated, HDRP(bp), FTRP(bp), GET(PRED(bp)), GET(SUCC(bp))
+        printf("[*] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    LEFTp:%p RIGTp:%p\n",
+            bp, size, allocated, HDRP(bp), FTRP(bp), GET_LEFT_P(bp), GET_RIGHT_P(bp)
         );
         printf("    bp-hdrp:%d,ftrp-hdrp:%d\n\n",
             bp-HDRP(bp), FTRP(bp)-HDRP(bp)
@@ -532,15 +439,15 @@ void InorderTreeWalk(char *bp)
 }
 
 /* 노드 검색 */
-char *SearchNode(char *bp, size_t size)
+char *SearchFreeBlock(char *bp, size_t size)
 {
     char *current = bp;
     if (GET_ALLOC(HDRP(current)) || size == GET_SIZE(HDRP(current)))
         return current;
     if (size < GET_SIZE(HDRP(current)))
-        return SearchNode(GET_LEFT_P(bp), size);
+        return SearchFreeBlock(GET_LEFT_P(bp), size);
     else
-        return SearchNode(GET_RIGHT_P(bp), size);
+        return SearchFreeBlock(GET_RIGHT_P(bp), size);
 }
 
 /* 최소 원소 반환 */
@@ -602,7 +509,7 @@ void InsertFreeBlock(char *bp)
     // printf("%d\n", node->parent->key);
     if (GET_ALLOC(y))
         free_root_bp = bp;
-    else if (GET_SIZE(HRDP(bp)) < GET_SIZE(HRDP(y)))
+    else if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(y)))
         PUT(LEFT_P(y), bp);
     else
         PUT(RIGHT_P(y), bp);
