@@ -87,6 +87,7 @@ static int mm_check(void);
 static char *heap_listp;
 static char *next_fit_ptr;
 static char *free_root_bp;
+static char *free_nil_bp;
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -116,7 +117,7 @@ int mm_init(void)
     //eplilogue
     PUT(heap_listp+(9*WSIZE), PACK(0, 1)); 
 
-    char *free_nil_bp = heap_listp+(2*WSIZE); // nil 가리킴
+    free_nil_bp = heap_listp+(2*WSIZE); // nil 가리킴
     
     heap_listp+=(8*WSIZE);
 
@@ -550,3 +551,59 @@ char *FindMinimum(char *bp)
     return bp;
 }
 
+/* 이식 */
+void TransplantFreeBlock(char *old_bp, char *new_bp)
+{
+    if (GET_ALLOC(GET_PARENT_P(old_bp)))
+        free_root_bp = new_bp;
+    else if (old_bp == GET_LEFT_P(GET_PARENT_P(old_bp)))
+        PUT(LEFT_P(GET_PARENT_P(old_bp)), new_bp);
+    else
+        PUT(RIGHT_P(GET_PARENT_P(old_bp)), new_bp);
+    if (!GET_ALLOC(new_bp))
+        PUT(PARENT_P(new_bp), GET_PARENT_P(old_bp));
+}
+
+/* 삭제 */
+void DeleteFreeBlock(char *bp)
+{
+    char *y;
+    if (GET_ALLOC(GET_LEFT_P(bp)))
+        TransplantFreeBlock(bp, GET_RIGHT_P(bp));
+    else if (GET_ALLOC(GET_RIGHT_P(bp)))
+        TransplantFreeBlock(bp, GET_LEFT_P(bp));
+    else{
+        y = FindMinimum(GET_RIGHT_P(bp));
+        if (GET_PARENT_P(y) != bp){
+            TransplantFreeBlock(y, GET_RIGHT_P(y));
+            PUT(RIGHT_P(y), GET_RIGHT_P(bp));
+            PUT(PARENT_P(GET_RIGHT_P(y)), y);
+        }
+        TransplantFreeBlock(bp, y);
+        PUT(LEFT_P(y), GET_LEFT_P(bp));
+        PUT(PARENT_P(GET_LEFT_P(y)) ,y);
+    }
+}
+
+/* 삽입 */
+void InsertFreeBlock(char *bp)
+{
+    char *y = free_nil_bp;
+    char *x = free_root_bp;
+    while (!GET_ALLOC(x))
+    {
+        y = x;  // y에 x 이전 값 계속 저장
+        if (GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(x)))
+            PUT(x, GET_LEFT_P(x));
+        else
+            PUT(x, GET_RIGHT_P(x));
+    }
+    PUT(PARENT_P(bp), y);
+    // printf("%d\n", node->parent->key);
+    if (GET_ALLOC(y))
+        free_root_bp = bp;
+    else if (GET_SIZE(HRDP(bp)) < GET_SIZE(HRDP(y)))
+        PUT(LEFT_P(y), bp);
+    else
+        PUT(RIGHT_P(y), bp);
+}
