@@ -118,11 +118,12 @@ int mm_init(void)
     
     heap_listp+=(10*WSIZE);
     free_list_head = free_head_bp; // free_list_head가 free_head 가리키게
-    
-    printf("heap_listp %p\n", heap_listp);
-    printf("free_list_head %p\n", free_list_head);
-    printf("free_head_bp %p\n", free_head_bp);
 
+    #ifdef DEBUG
+        printf("heap_listp %p\n", heap_listp);
+        printf("free_list_head %p\n", free_list_head);
+        printf("free_head_bp %p\n", free_head_bp);
+    #endif
     //free_head 앞 뒤 세팅
     PUT(PRED(free_head_bp), NULL); // head의 앞. null
     PUT(SUCC(free_head_bp), free_tail_bp); //head뒤
@@ -243,12 +244,13 @@ static void *extend_heap(size_t words){
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
-    printf("extend heap bp: %p\n",bp);
+
     PUT(HDRP(bp), PACK(size, 0)); //freeblock header
     PUT(FTRP(bp), PACK(size, 0)); //freeblock footer
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); //에필로그
     
     #ifdef DEBUG
+        printf("extend heap bp: %p\n",bp);
         mm_check();
     #endif
     //add 따로 안해줘도 됨(coalesce에서 함)
@@ -257,7 +259,6 @@ static void *extend_heap(size_t words){
 
 void add_explicit_free_block(char * bp){ //LIFO
 
-    printf("\n add_explicit_free block %p\n", bp);
     char *head_node = free_list_head; // 연결 리스트(explicit free list)의 헤드
     char *first_node = GET(SUCC(head_node)); // 연결 리스트의 first node;
     // first_node 와 bp의 관계
@@ -268,19 +269,24 @@ void add_explicit_free_block(char * bp){ //LIFO
     PUT(SUCC(bp), first_node); // bp의 successor에 first_node 넣기
     PUT(PRED(first_node), bp); // first_node의 predecessor에 bp 넣기
 
+     #ifdef DEBUG
+        printf("\n add_explicit_free block %p\n", bp);
+        mm_check();
+    #endif
+
 }
 
 void splice_explicit_free_block(char * bp){
 
-    char *prev_node = PRED(bp);
-    char *next_node = SUCC(bp);
+    char *prev_node = GET(PRED(bp));
+    char *next_node = GET(SUCC(bp));
 
     // 다음 블록(free)에 대한 연결 해제
     PUT(SUCC(prev_node), next_node);
     PUT(PRED(next_node), prev_node);
 
     #ifdef DEBUG
-        printf("\n splice explicit-free_block\n");
+        printf("\n splice explicit-free_block %p\n", bp);
         mm_check();
     #endif
 
@@ -335,8 +341,10 @@ static void *coalesce(void *bp){
         add_explicit_free_block(bp);
     }
 
-    printf("\ncoalescing 이후\n");
-    mm_check();
+    #ifdef DEBUG
+        printf("\ncoalescing 이후\n");
+        mm_check();
+    #endif
 
     return bp;
 }
@@ -361,7 +369,10 @@ static void* explicit_fit(size_t asize){
         size = GET_SIZE(HDRP(bp));
         
         if (size >= asize){
+
+            #ifdef DEBUG
             printf("\n find fit %p\n", bp);
+            #endif
             return bp;
         }
         bp = GET(SUCC(bp));
@@ -438,13 +449,14 @@ static void place(void *bp, size_t asize){
         PUT(HDRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0)); //암시적으로 넥스트로 감
         PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
         
-        printf("\n분할\n");
-        mm_check();
+        #ifdef DEBUG
+            printf("\n분할\n");
+            mm_check();
+        #endif
+
         add_explicit_free_block(NEXT_BLKP(bp));
-        mm_check();
     }
     splice_explicit_free_block(bp);
-    mm_check();
     return;
 }
 
@@ -454,6 +466,7 @@ int mm_check(void){
     size_t size;
 
     char *bp = mem_heap_lo()+2*WSIZE;
+    
     printf("\nmm_check\n");
     printf("mem_start_brk %p\n", mem_heap_lo());
     printf("mem_brk %p\n", mem_heap_hi());
