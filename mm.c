@@ -62,8 +62,13 @@ team_t team = {
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-#define PRED(bp) ((char *)(bp))
-#define SUCC(bp) ((char *)(bp) + WSIZE)
+#define LEFT_P(bp) ((char *)(bp))
+#define RIGHT_P(bp) ((char *)(bp) + WSIZE)
+#define PARENT_P(bp) ((char *)(bp) + DSIZE)
+
+#define GET_LEFT_P(bp) GET(LEFT_P(bp))
+#define GET_RIGHT_P(bp) GET(RIGHT_P(bp))
+#define GET_PARENT_P(bp) GET(PARENT_P(bp))
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
@@ -81,7 +86,7 @@ static int mm_check(void);
 
 static char *heap_listp;
 static char *next_fit_ptr;
-static char *free_list_head;
+static char *free_root_bp;
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -90,47 +95,44 @@ int mm_init(void)
     #ifdef DEBUG
         printf("\n-----DEBUG MODE------\n");
     #endif
-    if ((heap_listp=mem_sbrk(12*WSIZE)) == (void *)-1)
+    if ((heap_listp=mem_sbrk(10*WSIZE)) == (void *)-1)
         return -1;
+
+    // unused
     PUT(heap_listp, 0);
 
-    //free head
-    PUT(heap_listp+(1*WSIZE), PACK(2*DSIZE, 1));
-    PUT(heap_listp+(2*WSIZE), 0);
-    PUT(heap_listp+(3*WSIZE), 0);
-    PUT(heap_listp+(4*WSIZE), PACK(2*DSIZE, 1));
-
-    //free tail
-    PUT(heap_listp+(5*WSIZE), PACK(2*DSIZE, 1));
-    PUT(heap_listp+(6*WSIZE), 0);
-    PUT(heap_listp+(7*WSIZE), 0);
-    PUT(heap_listp+(8*WSIZE), PACK(2*DSIZE, 1));
+    // free nil
+    PUT(heap_listp+(1*WSIZE), PACK(3*WSIZE, 1)); // nil header
+    PUT(heap_listp+(2*WSIZE), 0); // left
+    PUT(heap_listp+(3*WSIZE), 0); // right
+    PUT(heap_listp+(4*WSIZE), 0); // parent
+    PUT(heap_listp+(5*WSIZE), 0); // padding
+    PUT(heap_listp+(6*WSIZE), PACK(3*WSIZE, 1)); // nil footer
 
     //prologue
-    PUT(heap_listp+(9*WSIZE), PACK(DSIZE, 1)); //header
-    PUT(heap_listp+(10*WSIZE), PACK(DSIZE, 1)); //footer
+    PUT(heap_listp+(7*WSIZE), PACK(DSIZE, 1)); //header
+    PUT(heap_listp+(8*WSIZE), PACK(DSIZE, 1)); //footer
 
     //eplilogue
-    PUT(heap_listp+(11*WSIZE), PACK(0, 1)); 
+    PUT(heap_listp+(9*WSIZE), PACK(0, 1)); 
 
-    char *free_head_bp = heap_listp+(2*WSIZE);
-    char *free_tail_bp = heap_listp+(6*WSIZE);
+    char *free_nil_bp = heap_listp+(2*WSIZE); // nil 가리킴
     
-    heap_listp+=(10*WSIZE);
-    free_list_head = free_head_bp; // free_list_head가 free_head 가리키게
+    heap_listp+=(8*WSIZE);
+
+    free_root_bp = free_nil_bp; // free_list_root가 nil 가리키게
 
     #ifdef DEBUG
         printf("heap_listp %p\n", heap_listp);
         printf("free_list_head %p\n", free_list_head);
         printf("free_head_bp %p\n", free_head_bp);
     #endif
-    //free_head 앞 뒤 세팅
-    PUT(PRED(free_head_bp), NULL); // head의 앞. null
-    PUT(SUCC(free_head_bp), free_tail_bp); //head뒤
+
+    // free_nil_bp left, right, parent 세팅
+    PUT(LEFT(free_nil_bp), NULL); // nil의 왼쪽
+    PUT(RIGHT(free_nil_bp), NULL); // nil의 오른쪽
+    PUT(PARENT(free_nil_bp), NULL); // nil의 부모
     
-    //free_tail 앞 뒤 세팅
-    PUT(PRED(free_tail_bp), free_head_bp); // tail 의 앞
-    PUT(SUCC(free_tail_bp), NULL); // tail의 뒤
     
     #ifdef DEBUG
         printf("\n초기화\n");
@@ -495,20 +497,56 @@ int mm_check(void){
     }
     
     i=0;
-    bp = free_list_head;
+    bp = free_root_bp;
     printf("\n free list 출력 \n");
-    while(bp!=NULL){
+    InorderTreeWalk(bp);
+    //free list 추적
+    return 0;
+}
+
+/* 중위 순회 */
+void InorderTreeWalk(char *bp)
+{   
+    alloc_t allocated;
+    size_t size;
+    
+    if (bp != NULL)
+    {
+        InorderTreeWalk(GET_LEFT_P(bp));
+
         allocated = GET_ALLOC(HDRP(bp));
         size = GET_SIZE(HDRP(bp));
-        printf("[%d] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    PREDp:%p SUCCp:%p\n",
-            i,bp, size, allocated, HDRP(bp), FTRP(bp), GET(PRED(bp)), GET(SUCC(bp))
+
+        printf("[*] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    PREDp:%p SUCCp:%p\n",
+            bp, size, allocated, HDRP(bp), FTRP(bp), GET(PRED(bp)), GET(SUCC(bp))
         );
         printf("    bp-hdrp:%d,ftrp-hdrp:%d\n\n",
             bp-HDRP(bp), FTRP(bp)-HDRP(bp)
         );
-        bp = GET(SUCC(bp));
-        i++;
+
+        InorderTreeWalk(GET_RIGHT_P(bp));
     }
-    //freelist 추적
-    return 0;
+    return;
+
 }
+
+/* 노드 검색 */
+char *SearchNode(char *bp, size_t size)
+{
+    char *current = bp;
+    if (GET_ALLOC(HDRP(current)) || size == GET_SIZE(HDRP(current)))
+        return current;
+    if (size < GET_SIZE(HDRP(current)))
+        return SearchNode(GET_LEFT_P(bp), size);
+    else
+        return SearchNode(GET_RIGHT_P(bp), size);
+}
+
+/* 최소 원소 반환 */
+char *FindMinimum(char *bp)
+{
+    while (!GET_ALLOC(HDRP(GET_LEFT_P(bp))))
+        bp = GET_LEFT_P(bp);
+    return bp;
+}
+
