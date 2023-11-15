@@ -87,36 +87,43 @@ static char *free_list_head;
  */
 int mm_init(void)
 {
+    #ifdef DEBUG
+        printf("\n-----DEBUG MODE------\n");
+    #endif
     if ((heap_listp=mem_sbrk(12*WSIZE)) == (void *)-1)
         return -1;
     PUT(heap_listp, 0);
 
     //free head
-    PUT(heap_listp+(1*WSIZE),PACK(DSIZE*2,1));
+    PUT(heap_listp+(1*WSIZE), PACK(2*DSIZE, 1));
     PUT(heap_listp+(2*WSIZE), 0);
     PUT(heap_listp+(3*WSIZE), 0);
-    PUT(heap_listp+(4*WSIZE),PACK(DSIZE*2,1));
+    PUT(heap_listp+(4*WSIZE), PACK(2*DSIZE, 1));
 
     //free tail
-    PUT(heap_listp+(5*WSIZE),PACK(DSIZE*2,1));
+    PUT(heap_listp+(5*WSIZE), PACK(2*DSIZE, 1));
     PUT(heap_listp+(6*WSIZE), 0);
     PUT(heap_listp+(7*WSIZE), 0);
-    PUT(heap_listp+(8*WSIZE),PACK(DSIZE*2,1));
+    PUT(heap_listp+(8*WSIZE), PACK(2*DSIZE, 1));
 
     //prologue
     PUT(heap_listp+(9*WSIZE), PACK(DSIZE, 1)); //header
     PUT(heap_listp+(10*WSIZE), PACK(DSIZE, 1)); //footer
-    PUT(heap_listp+(11*WSIZE), PACK(0, 1)); //eplilogue
+
+    //eplilogue
+    PUT(heap_listp+(11*WSIZE), PACK(0, 1)); 
     heap_listp+=(10*WSIZE);
     
+    mm_check();
     if (extend_heap(CHUNKSIZE/WSIZE)==NULL)
         return -1;
 
     char *free_head_bp = heap_listp+(2*WSIZE);
     char *free_tail_bp = heap_listp+(6*WSIZE);
-    free_list_head = free_head_bp;
+    
+    *free_list_head = free_head_bp; // free_list_head가 free_head 가리키게
+    
     //free_head 앞 뒤 세팅
-    PUT(free_list_head, free_head_bp);// free_list_head가 free_head 가리키게
     PUT(PRED(free_head_bp), NULL); // head의 앞. null
     PUT(SUCC(free_head_bp), free_tail_bp); //head뒤
     
@@ -135,8 +142,9 @@ int mm_init(void)
 
 void *mm_malloc(size_t size)
 {
-    
-    // printf("malloc, %d\n",size); //debug
+    #ifdef DEBUG
+        printf("\nmalloc, %d\n",size); //debug
+    #endif
     size_t asize;
     size_t extendsize;
     char *bp;
@@ -150,23 +158,28 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
 
     if ((bp = find_fit(asize)) != NULL){
-        // printf("들어갈 자리 찾음\n");  //debug
+        
         place(bp, asize);
-        mm_check();
-        // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
+
+        #ifdef DEBUG
+            printf("들어갈 자리 찾음\n");
+            mm_check();
+        #endif
         return bp;
     }
 
     extendsize = MAX(asize, CHUNKSIZE);
-    // printf("a:%d, c:%d, e:%d\n",asize, CHUNKSIZE, extendsize);
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL){
-        // printf("extend error\n");
+        #ifdef DEBUG
+            printf("extend error\n");
+        #endif
         return NULL;
     }
-    // printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize); //debug
     place(bp, asize);
-    mm_check();
-    // printf("bp: %p size: %d\n",bp,GET_SIZE(HDRP(bp)));
+    #ifdef DEBUG
+        printf("들어갈 자리 못찾음 -> 힙 확장 %d\n",extendsize); //debug
+        mm_check();
+    #endif
     return bp;
 }
 
@@ -177,13 +190,15 @@ void mm_free(void *bp)
 {
     size_t size = GET_SIZE(HDRP(bp));
 
-    // printf("free %p\n",HDRP(bp));
-
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-    next_fit_ptr = coalesce(bp);
-    // printf("해제\n"); //debug
-    mm_check();
+    coalesce(bp);
+    //add 따로 안해줘도 됨(coalsece에서 함)
+
+    #ifdef DEBUG
+        printf("\n해제 %d\n", size);
+        mm_check();
+    #endif
 }
 
 
@@ -192,6 +207,11 @@ void mm_free(void *bp)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
+
+    #ifdef DEBUG
+        printf("\n재할당 %d\n", size);
+    #endif
+
     void *oldptr = ptr;
     void *newptr;
     size_t copySize;
@@ -215,10 +235,11 @@ static void *extend_heap(size_t words){
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
-
+    PUT(HDRP(bp), PACK(size, 0)); //freeblock header
+    PUT(FTRP(bp), PACK(size, 0)); //freeblock footer
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); //에필로그
+    
+    //add 따로 안해줘도 됨(coalesce에서 함)
     return coalesce(bp);
 }
 
@@ -252,7 +273,6 @@ static void *coalesce(void *bp){
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
     
-
     // CASE 1 : 이전 블록 - allocated / 다음 블록 - allocated
     if(prev_alloc && next_alloc){
 
@@ -387,6 +407,7 @@ static void place(void *bp, size_t asize){
     if((base_size - asize) < 4 * WSIZE){
         PUT(FTRP(bp), PACK(base_size, 1));
         PUT(HDRP(bp), PACK(base_size, 1));
+        
     }
     // 남은 free block이 4 words 이상일 때
     else{  //split
@@ -396,18 +417,17 @@ static void place(void *bp, size_t asize){
         PUT(FTRP(NEXT_BLKP(bp)), PACK(base_size-asize, 0));
         add_explicit_free_block(NEXT_BLKP(bp));
     }
-    next_fit_ptr = NEXT_BLKP(bp);
+    splice_explicit_free_block(bp);
     return;
 }
 
 int mm_check(void){
-    return 0;
 
     alloc_t allocated;
     size_t size;
 
-    char *bp = heap_listp;
-    // printf("\nmm_check\n");
+    char *bp = mem_heap_lo()+2*WSIZE;
+    printf("\nmm_check\n");
     int i=0;
     while(bp < (char *)mem_heap_hi()+1)
     {
