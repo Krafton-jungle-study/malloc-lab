@@ -76,11 +76,10 @@ team_t team = {
 static void *extend_heap(size_t);
 static void *coalesce(void *);
 static void *find_fit(size_t);
-static void *first_fit(size_t);
 static void place(void *, size_t);
 static int mm_check(void);
 
-void InorderTreeWalk(char *);
+static void InorderTreeWalk(char *);
 static char *SearchFreeBlock(char *, size_t);
 static char *FindMinimum(char *);
 static void TransplantFreeBlock(char *, char *);
@@ -88,7 +87,6 @@ static void DeleteFreeBlock(char *);
 static void InsertFreeBlock(char *);
 
 static char *heap_listp;
-static char *next_fit_ptr;
 static char *free_root_bp;
 static char *free_nil_bp;
 /* 
@@ -106,12 +104,12 @@ int mm_init(void)
     PUT(heap_listp, 0);
 
     // free nil
-    PUT(heap_listp+(1*WSIZE), PACK(3*WSIZE, 1)); // nil header
+    PUT(heap_listp+(1*WSIZE), PACK(6*WSIZE, 1)); // nil header
     PUT(heap_listp+(2*WSIZE), 0); // left
     PUT(heap_listp+(3*WSIZE), 0); // right
     PUT(heap_listp+(4*WSIZE), 0); // parent
     PUT(heap_listp+(5*WSIZE), 0); // padding
-    PUT(heap_listp+(6*WSIZE), PACK(3*WSIZE, 1)); // nil footer
+    PUT(heap_listp+(6*WSIZE), PACK(6*WSIZE, 1)); // nil footer
 
     //prologue
     PUT(heap_listp+(7*WSIZE), PACK(DSIZE, 1)); //header
@@ -269,6 +267,7 @@ static void *coalesce(void *bp){
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
     
+    printf("연결 \n");
     // CASE 1 : 이전 블록 - allocated / 다음 블록 - allocated
     if(prev_alloc && next_alloc){
         //add. 아래에서 처리
@@ -304,7 +303,7 @@ static void *coalesce(void *bp){
         size += GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
-        bp=PREV_BLKP(bp);
+        bp = PREV_BLKP(bp);
 
     }
     InsertFreeBlock(bp);
@@ -322,26 +321,6 @@ static void *coalesce(void *bp){
 static void *find_fit(size_t asize)
 {
     return (void *)SearchFreeBlock(free_root_bp, asize);
-}
-
-static void* first_fit(size_t asize)
-{
-    alloc_t allocated;
-    size_t size;
-
-    char *bp = heap_listp;
-
-    while(bp < (char *)mem_heap_hi()+1)
-    {
-        allocated = GET_ALLOC(HDRP(bp));
-        size = GET_SIZE(HDRP(bp));
-        
-        if (!allocated && size >= asize)
-            return bp;
-        bp = NEXT_BLKP(bp);
-    }
-    return NULL;
-
 }
 
 static void place(void *bp, size_t asize){
@@ -370,76 +349,8 @@ static void place(void *bp, size_t asize){
     return;
 }
 
-int mm_check(void){
-
-    alloc_t allocated;
-    size_t size;
-
-    char *bp = mem_heap_lo()+2*WSIZE;
-    
-    printf("\nmm_check\n");
-    printf("mem_start_brk %p\n", mem_heap_lo());
-    printf("mem_brk %p\n", mem_heap_hi());
-    printf("mem_heap_size %d\n", mem_heapsize());
-
-    int i=0;
-
-    //전체 블록 추적
-    printf("\n 전체 블록 출력 \n");
-    printf("----프리리스트 헤드, 테일----\n");
-    while(bp < (char *)mem_heap_hi()+1)
-    {
-        allocated = GET_ALLOC(HDRP(bp));
-        size = GET_SIZE(HDRP(bp));
-        printf("[%d] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p,  \n    NEXTp:%p\n",
-            i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
-        );
-        printf("    bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
-            bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
-        );
-        bp = NEXT_BLKP(bp);
-        i++;
-        if(i==2){
-            printf("---프롤로그 부터---\n");
-        }
-    }
-    
-    i=0;
-    bp = free_root_bp;
-    printf("\n free list 출력 \n");
-    InorderTreeWalk(bp);
-    //free list 추적
-    return 0;
-}
-
-/* 중위 순회 */
-void InorderTreeWalk(char *bp)
-{   
-    alloc_t allocated;
-    size_t size;
-    
-    if (bp != NULL)
-    {
-        InorderTreeWalk(GET_LEFT_P(bp));
-
-        allocated = GET_ALLOC(HDRP(bp));
-        size = GET_SIZE(HDRP(bp));
-
-        printf("[*] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    LEFTp:%p RIGTp:%p\n",
-            bp, size, allocated, HDRP(bp), FTRP(bp), GET_LEFT_P(bp), GET_RIGHT_P(bp)
-        );
-        printf("    bp-hdrp:%d,ftrp-hdrp:%d\n\n",
-            bp-HDRP(bp), FTRP(bp)-HDRP(bp)
-        );
-
-        InorderTreeWalk(GET_RIGHT_P(bp));
-    }
-    return;
-
-}
-
 /* 노드 검색 */
-char *SearchFreeBlock(char *bp, size_t size)
+static char *SearchFreeBlock(char *bp, size_t size)
 {
     char *current = bp;
     if (GET_ALLOC(HDRP(current)) || size == GET_SIZE(HDRP(current)))
@@ -451,7 +362,7 @@ char *SearchFreeBlock(char *bp, size_t size)
 }
 
 /* 최소 원소 반환 */
-char *FindMinimum(char *bp)
+static char *FindMinimum(char *bp)
 {
     while (!GET_ALLOC(HDRP(GET_LEFT_P(bp))))
         bp = GET_LEFT_P(bp);
@@ -459,7 +370,7 @@ char *FindMinimum(char *bp)
 }
 
 /* 이식 */
-void TransplantFreeBlock(char *old_bp, char *new_bp)
+static void TransplantFreeBlock(char *old_bp, char *new_bp)
 {
     if (GET_ALLOC(GET_PARENT_P(old_bp)))
         free_root_bp = new_bp;
@@ -472,7 +383,7 @@ void TransplantFreeBlock(char *old_bp, char *new_bp)
 }
 
 /* 삭제 */
-void DeleteFreeBlock(char *bp)
+static void DeleteFreeBlock(char *bp)
 {
     char *y;
     if (GET_ALLOC(GET_LEFT_P(bp)))
@@ -488,12 +399,12 @@ void DeleteFreeBlock(char *bp)
         }
         TransplantFreeBlock(bp, y);
         PUT(LEFT_P(y), GET_LEFT_P(bp));
-        PUT(PARENT_P(GET_LEFT_P(y)) ,y);
+        PUT(PARENT_P(GET_LEFT_P(y)), y);
     }
 }
 
 /* 삽입 */
-void InsertFreeBlock(char *bp)
+static void InsertFreeBlock(char *bp)
 {
     char *y = free_nil_bp;
     char *x = free_root_bp;
@@ -513,4 +424,72 @@ void InsertFreeBlock(char *bp)
         PUT(LEFT_P(y), bp);
     else
         PUT(RIGHT_P(y), bp);
+}
+
+/* 중위 순회 */
+static void InorderTreeWalk(char *bp)
+{   
+    alloc_t allocated;
+    size_t size;
+    
+    if (bp != NULL)
+    {
+        InorderTreeWalk(GET_LEFT_P(bp));
+
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+
+        printf("[*] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p, \n    LEFTp:%p RIGTp:%p PRNTp:%p\n",
+            bp, size, allocated, HDRP(bp), FTRP(bp), GET_LEFT_P(bp), GET_RIGHT_P(bp), GET_PARENT_P(bp)
+        );
+        printf("    bp-hdrp:%d,ftrp-hdrp:%d\n\n",
+            bp-HDRP(bp), FTRP(bp)-HDRP(bp)
+        );
+
+        InorderTreeWalk(GET_RIGHT_P(bp));
+    }
+    return;
+
+}
+
+static int mm_check(void){
+
+    alloc_t allocated;
+    size_t size;
+
+    char *bp = mem_heap_lo()+2*WSIZE;
+    
+    printf("\nmm_check\n");
+    printf("mem_start_brk %p\n", mem_heap_lo());
+    printf("mem_brk %p\n", (char *)mem_heap_hi()+1);
+    printf("mem_heap_size %d\n", mem_heapsize());
+
+    int i=0;
+
+    //전체 블록 추적
+    printf("\n 전체 블록 출력 \n");
+    printf("----프리리스트 닐------\n");
+    while(bp < (char *)mem_heap_hi()+1)
+    {
+        allocated = GET_ALLOC(HDRP(bp));
+        size = GET_SIZE(HDRP(bp));
+        printf("[%d] bp:%p, size:%d alloc:%ld, \n    HDRp:%p, FTRp:%p,  \n    NEXTp:%p\n",
+            i,bp, size, allocated, HDRP(bp), FTRP(bp), NEXT_BLKP(bp)
+        );
+        printf("    bp-hdrp:%d,ftrp-hdrp:%d,nextp-ftrp:%d\n\n",
+            bp-HDRP(bp), FTRP(bp)-HDRP(bp), NEXT_BLKP(bp)-FTRP(bp)
+        );
+        bp = NEXT_BLKP(bp);
+        i++;
+        if(i==1){
+            printf("---프롤로그 부터---\n");
+        }
+    }
+    
+    i=0;
+    bp = free_root_bp;
+    printf("\n free list 출력 \n");
+    InorderTreeWalk(bp);
+    //free list 추적
+    return 0;
 }
